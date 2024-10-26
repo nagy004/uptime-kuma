@@ -34,7 +34,25 @@ class Squadcast extends NotificationProvider {
                     data.status = "resolve";
                 }
 
-                data.tags["AlertAddress"] = this.extractAddress(monitorJSON);
+                let address;
+                switch (monitorJSON["type"]) {
+                    case "ping":
+                        address = monitorJSON["hostname"];
+                        break;
+                    case "port":
+                    case "dns":
+                    case "steam":
+                        address = monitorJSON["hostname"];
+                        if (monitorJSON["port"]) {
+                            address += ":" + monitorJSON["port"];
+                        }
+                        break;
+                    default:
+                        address = monitorJSON["url"];
+                        break;
+                }
+
+                data.tags["AlertAddress"] = address;
 
                 monitorJSON["tags"].forEach(tag => {
                     data.tags[tag["name"]] = {

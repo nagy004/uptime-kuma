@@ -15,14 +15,14 @@ on:
 
 jobs:
   auto-test:
-    needs: [ check-linters ]
+    needs: [ check-linters, e2e-test ]
     runs-on: ${{ matrix.os }}
     timeout-minutes: 15
 
     strategy:
       matrix:
         os: [macos-latest, ubuntu-latest, windows-latest, ARM64]
-        node: [ 18, 20 ]
+        node: [ 16, 20.5 ]
         # See supported Node.js release schedule at https://nodejs.org/en/about/releases/
 
     steps:
@@ -33,23 +33,27 @@ jobs:
       uses: actions/setup-node@v4
       with:
         node-version: ${{ matrix.node }}
-    - run: npm install
-    - run: npm run build
-    - run: npm run test-backend
+  
+    - name: Install
+      run: npm install
+    - name: Build
+      run: npm run build
+    - name: Test Backend
+      run: npm run test-backend
       env:
         HEADLESS_TEST: 1
         JUST_FOR_TEST: ${{ secrets.JUST_FOR_TEST }}
 
   # As a lot of dev dependencies are not supported on ARMv7, we have to test it separately and just test if `npm ci --production` works
   armv7-simple-test:
-    needs: [ ]
+    needs: [ check-linters ]
     runs-on: ${{ matrix.os }}
     timeout-minutes: 15
-    if: ${{ github.repository == 'louislam/uptime-kuma' }}
+
     strategy:
       matrix:
         os: [ ARMv7 ]
-        node: [ 18, 20 ]
+        node: [ 14, 20 ]
         # See supported Node.js release schedule at https://nodejs.org/en/about/releases/
 
     steps:
@@ -77,7 +81,7 @@ jobs:
     - run: npm run lint:prod
 
   e2e-test:
-    needs: [ ]
+    needs: [ check-linters ]
     runs-on: ARM64
     steps:
     - run: git config --global core.autocrlf false  # Mainly for Windows

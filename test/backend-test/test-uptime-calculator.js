@@ -1,4 +1,13 @@
-const test = require("node:test");
+const semver = require("semver");
+let test;
+const nodeVersion = process.versions.node;
+// Node.js version >= 18
+if (semver.satisfies(nodeVersion, ">= 18")) {
+    test = require("node:test");
+} else {
+    test = require("test");
+}
+
 const assert = require("node:assert");
 const { UptimeCalculator } = require("../../server/uptime-calculator");
 const dayjs = require("dayjs");

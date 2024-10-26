@@ -18,11 +18,6 @@ router.get("/status/:slug", cache("5 minutes"), async (request, response) => {
     await StatusPage.handleStatusPageResponse(response, server.indexHTML, slug);
 });
 
-router.get("/status/:slug/rss", cache("5 minutes"), async (request, response) => {
-    let slug = request.params.slug;
-    await StatusPage.handleStatusPageRSSResponse(response, slug);
-});
-
 router.get("/status", cache("5 minutes"), async (request, response) => {
     let slug = "default";
     await StatusPage.handleStatusPageResponse(response, server.indexHTML, slug);

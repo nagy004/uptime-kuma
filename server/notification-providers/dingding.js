@@ -19,9 +19,6 @@ class DingDing extends NotificationProvider {
                     markdown: {
                         title: `[${this.statusToString(heartbeatJSON["status"])}] ${monitorJSON["name"]}`,
                         text: `## [${this.statusToString(heartbeatJSON["status"])}] ${monitorJSON["name"]} \n> ${heartbeatJSON["msg"]}\n> Time (${heartbeatJSON["timezone"]}): ${heartbeatJSON["localDateTime"]}`,
-                    },
-                    "at": {
-                        "isAtAll": notification.mentioning === "everyone"
                     }
                 };
                 if (await this.sendToDingDing(notification, params)) {
@@ -65,7 +62,7 @@ class DingDing extends NotificationProvider {
         if (result.data.errmsg === "ok") {
             return true;
         }
-        throw new Error(result.data.errmsg);
+        return false;
     }
 
     /**
@@ -87,6 +84,7 @@ class DingDing extends NotificationProvider {
      * @returns {string} Status
      */
     statusToString(status) {
+        // TODO: Move to notification-provider.js to avoid repetition in classes
         switch (status) {
             case DOWN:
                 return "DOWN";

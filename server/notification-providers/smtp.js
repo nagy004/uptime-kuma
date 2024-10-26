@@ -93,7 +93,12 @@ class SMTP extends NotificationProvider {
 
         if (monitorJSON !== null) {
             monitorName = monitorJSON["name"];
-            monitorHostnameOrURL = this.extractAddress(monitorJSON);
+
+            if (monitorJSON["type"] === "http" || monitorJSON["type"] === "keyword" || monitorJSON["type"] === "json-query") {
+                monitorHostnameOrURL = monitorJSON["url"];
+            } else {
+                monitorHostnameOrURL = monitorJSON["hostname"];
+            }
         }
 
         let serviceStatus = "⚠️ Test";

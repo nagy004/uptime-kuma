@@ -19,7 +19,7 @@ const nodeVersion = process.versions.node;
 
 // Get the required Node.js version from package.json
 const requiredNodeVersions = require("../package.json").engines.node;
-const bannedNodeVersions = " < 18 || 20.0.* || 20.1.* || 20.2.* || 20.3.* ";
+const bannedNodeVersions = " < 14 || 20.0.* || 20.1.* || 20.2.* || 20.3.* ";
 console.log(`Your Node.js version: ${nodeVersion}`);
 
 const semver = require("semver");
@@ -132,9 +132,9 @@ const twoFAVerifyOptions = {
 const testMode = !!args["test"] || false;
 
 // Must be after io instantiation
-const { sendNotificationList, sendHeartbeatList, sendInfo, sendProxyList, sendDockerHostList, sendAPIKeyList, sendRemoteBrowserList, sendMonitorTypeList } = require("./client");
+const { sendNotificationList, sendHeartbeatList, sendInfo, sendProxyList, sendDockerHostList, sendAPIKeyList, sendRemoteBrowserList } = require("./client");
 const { statusPageSocketHandler } = require("./socket-handlers/status-page-socket-handler");
-const { databaseSocketHandler } = require("./socket-handlers/database-socket-handler");
+const databaseSocketHandler = require("./socket-handlers/database-socket-handler");
 const { remoteBrowserSocketHandler } = require("./socket-handlers/remote-browser-socket-handler");
 const TwoFA = require("./2fa");
 const StatusPage = require("./model/status_page");
@@ -149,7 +149,6 @@ const apicache = require("./modules/apicache");
 const { resetChrome } = require("./monitor-types/real-browser-monitor-type");
 const { EmbeddedMariaDB } = require("./embedded-mariadb");
 const { SetupDatabase } = require("./setup-database");
-const { chartSocketHandler } = require("./socket-handlers/chart-socket-handler");
 
 app.use(express.json());
 
@@ -245,36 +244,6 @@ let needSetup = false;
             log.debug("test", request.headers);
             log.debug("test", request.body);
             response.send("OK");
-        });
-
-        const fs = require("fs");
-
-        app.get("/_e2e/take-sqlite-snapshot", async (request, response) => {
-            await Database.close();
-            try {
-                fs.cpSync(Database.sqlitePath, `${Database.sqlitePath}.e2e-snapshot`);
-            } catch (err) {
-                throw new Error("Unable to copy SQLite DB.");
-            }
-            await Database.connect();
-
-            response.send("Snapshot taken.");
-        });
-
-        app.get("/_e2e/restore-sqlite-snapshot", async (request, response) => {
-            if (!fs.existsSync(`${Database.sqlitePath}.e2e-snapshot`)) {
-                throw new Error("Snapshot doesn't exist.");
-            }
-
-            await Database.close();
-            try {
-                fs.cpSync(`${Database.sqlitePath}.e2e-snapshot`, Database.sqlitePath);
-            } catch (err) {
-                throw new Error("Unable to copy snapshot file.");
-            }
-            await Database.connect();
-
-            response.send("Snapshot restored.");
         });
     }
 
@@ -716,10 +685,6 @@ let needSetup = false;
                 monitor.kafkaProducerBrokers = JSON.stringify(monitor.kafkaProducerBrokers);
                 monitor.kafkaProducerSaslOptions = JSON.stringify(monitor.kafkaProducerSaslOptions);
 
-                monitor.conditions = JSON.stringify(monitor.conditions);
-
-                monitor.rabbitmqNodes = JSON.stringify(monitor.rabbitmqNodes);
-
                 bean.import(monitor);
                 bean.user_id = socket.userID;
 
@@ -729,13 +694,13 @@ let needSetup = false;
 
                 await updateMonitorNotification(bean.id, notificationIDList);
 
-                await server.sendUpdateMonitorIntoList(socket, bean.id);
+                await server.sendMonitorList(socket);
 
                 if (monitor.active !== false) {
                     await startMonitor(socket.userID, bean.id);
                 }
 
-                log.info("monitor", `Added Monitor: ${bean.id} User ID: ${socket.userID}`);
+                log.info("monitor", `Added Monitor: ${monitor.id} User ID: ${socket.userID}`);
 
                 callback({
                     ok: true,
@@ -860,20 +825,11 @@ let needSetup = false;
                 bean.kafkaProducerAllowAutoTopicCreation = monitor.kafkaProducerAllowAutoTopicCreation;
                 bean.kafkaProducerSaslOptions = JSON.stringify(monitor.kafkaProducerSaslOptions);
                 bean.kafkaProducerMessage = monitor.kafkaProducerMessage;
-                bean.cacheBust = monitor.cacheBust;
                 bean.kafkaProducerSsl = monitor.kafkaProducerSsl;
                 bean.kafkaProducerAllowAutoTopicCreation =
                     monitor.kafkaProducerAllowAutoTopicCreation;
                 bean.gamedigGivenPortOnly = monitor.gamedigGivenPortOnly;
                 bean.remote_browser = monitor.remote_browser;
-                bean.snmpVersion = monitor.snmpVersion;
-                bean.snmpOid = monitor.snmpOid;
-                bean.jsonPathOperator = monitor.jsonPathOperator;
-                bean.timeout = monitor.timeout;
-                bean.rabbitmqNodes = JSON.stringify(monitor.rabbitmqNodes);
-                bean.rabbitmqUsername = monitor.rabbitmqUsername;
-                bean.rabbitmqPassword = monitor.rabbitmqPassword;
-                bean.conditions = JSON.stringify(monitor.conditions);
 
                 bean.validate();
 
@@ -885,11 +841,11 @@ let needSetup = false;
 
                 await updateMonitorNotification(bean.id, monitor.notificationIDList);
 
-                if (await Monitor.isActive(bean.id, bean.active)) {
+                if (await bean.isActive()) {
                     await restartMonitor(socket.userID, bean.id);
                 }
 
-                await server.sendUpdateMonitorIntoList(socket, bean.id);
+                await server.sendMonitorList(socket);
 
                 callback({
                     ok: true,
@@ -929,17 +885,14 @@ let needSetup = false;
 
                 log.info("monitor", `Get Monitor: ${monitorID} User ID: ${socket.userID}`);
 
-                let monitor = await R.findOne("monitor", " id = ? AND user_id = ? ", [
+                let bean = await R.findOne("monitor", " id = ? AND user_id = ? ", [
                     monitorID,
                     socket.userID,
                 ]);
-                const monitorData = [{ id: monitor.id,
-                    active: monitor.active
-                }];
-                const preloadData = await Monitor.preparePreloadData(monitorData);
+
                 callback({
                     ok: true,
-                    monitor: monitor.toJSON(preloadData),
+                    monitor: await bean.toJSON(),
                 });
 
             } catch (e) {
@@ -990,7 +943,7 @@ let needSetup = false;
             try {
                 checkLogin(socket);
                 await startMonitor(socket.userID, monitorID);
-                await server.sendUpdateMonitorIntoList(socket, monitorID);
+                await server.sendMonitorList(socket);
 
                 callback({
                     ok: true,
@@ -1010,7 +963,7 @@ let needSetup = false;
             try {
                 checkLogin(socket);
                 await pauseMonitor(socket.userID, monitorID);
-                await server.sendUpdateMonitorIntoList(socket, monitorID);
+                await server.sendMonitorList(socket);
 
                 callback({
                     ok: true,
@@ -1056,7 +1009,8 @@ let needSetup = false;
                     msg: "successDeleted",
                     msgi18n: true,
                 });
-                await server.sendDeleteMonitorFromList(socket, monitorID);
+
+                await server.sendMonitorList(socket);
 
             } catch (e) {
                 callback({
@@ -1365,12 +1319,6 @@ let needSetup = false;
                     await doubleCheckPassword(socket, currentPassword);
                 }
 
-                // Log out all clients if enabling auth
-                // GHSA-23q2-5gf8-gjpp
-                if (currentDisabledAuth && !data.disableAuth) {
-                    server.disconnectAllSocketClients(socket.userID, socket.id);
-                }
-
                 const previousChromeExecutable = await Settings.get("chromeExecutable");
                 const previousNSCDStatus = await Settings.get("nscd");
 
@@ -1574,7 +1522,6 @@ let needSetup = false;
         apiKeySocketHandler(socket);
         remoteBrowserSocketHandler(socket);
         generalSocketHandler(socket, server);
-        chartSocketHandler(socket);
 
         log.debug("server", "added all socket handlers");
 
@@ -1588,7 +1535,6 @@ let needSetup = false;
             await afterLogin(socket, await R.findOne("user"));
             socket.emit("autoLogin");
         } else {
-            socket.emit("loginRequired");
             log.debug("auth", "need auth");
         }
 
@@ -1681,18 +1627,17 @@ async function afterLogin(socket, user) {
         sendDockerHostList(socket),
         sendAPIKeyList(socket),
         sendRemoteBrowserList(socket),
-        sendMonitorTypeList(socket),
     ]);
 
     await StatusPage.sendStatusPageList(io, socket);
 
-    const monitorPromises = [];
     for (let monitorID in monitorList) {
-        monitorPromises.push(sendHeartbeatList(socket, monitorID));
-        monitorPromises.push(Monitor.sendStats(io, monitorID, user.id));
+        await sendHeartbeatList(socket, monitorID);
     }
 
-    await Promise.all(monitorPromises);
+    for (let monitorID in monitorList) {
+        await Monitor.sendStats(io, monitorID, user.id);
+    }
 
     // Set server timezone from client browser if not set
     // It should be run once only
